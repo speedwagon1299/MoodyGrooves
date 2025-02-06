@@ -1,8 +1,0 @@
-{
-    "name": "moody-grooves",
-    "version": "1.0.0",
-    "type": "module",
-    "dependencies": {
-        "firebase": "^10.5.2"
-    }
-}

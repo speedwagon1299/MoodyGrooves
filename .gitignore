@@ -217,7 +217,8 @@ bower_components
 build/Release
 
 # Dependency directories
-node_modules/
+frontend/node_modules
+frontend/package-lock.json
 
 # Optional npm cache directory
 .npm
@@ -233,3 +234,4 @@ node_modules/
 
 # Yarn Integrity file
 .yarn-integrity
+

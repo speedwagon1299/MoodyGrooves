@@ -1,5 +1,6 @@
 import fetch from "node-fetch"; // if node version <18; otherwise use global fetch
 import { redis } from "../lib/redis";
+import { createSession } from "../lib/session";
 import { encrypt } from "../utils/crypto";
 import { StoredRefresh, TokenResponse } from "@/types";
 import { Request, Response } from "express";
@@ -8,6 +9,8 @@ import { REDIS_REFRESH_KEY, REDIS_ACCESS_KEY } from "../services/spotify";
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID!;
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET!;
 const SPOTIFY_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI!;
+const COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "moody_session";
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
 /**
  * Exchange authorization code for tokens, store refresh token (encrypted) in Redis.
@@ -37,15 +40,14 @@ export async function handleCallback(req: Request, res: Response) {
     },
     body: params.toString()
   });
-  console.log('tokenRes', tokenRes);
   if (!tokenRes.ok) {
     const text = await tokenRes.text();
     return res.status(500).send("Token exchange failed: " + text);
   }
 
   const data = await tokenRes.json() as TokenResponse; // access_token, refresh_token, expires_in, scope
-  // In a real app: use session/user context. For demo: assume userId passed via state or cookie.
-  // TODO: find username
+
+
   const userId = state || "demo-user";
 
   // Check for refresh token and store
@@ -68,7 +70,22 @@ export async function handleCallback(req: Request, res: Response) {
     await redis.set(REDIS_ACCESS_KEY(userId), value, { PX: (data.expires_in - 30) * 1000 });
   }
 
-  // Redirect back to frontend (in production use your real frontend URL)
-  // TODO: Figure it out later
+  // Create a server-side session and set httpOnly cookie.
+  const sessionPayload = {
+    userId,
+    createdAt: Date.now(),
+  };
+  const sessionId = await createSession(sessionPayload, SESSION_TTL_SECONDS);
+
+  // set cookie (httpOnly so JS cannot read it)
+  res.cookie(COOKIE_NAME, sessionId, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production", // set true in prod with HTTPS
+    sameSite: "lax",
+    maxAge: SESSION_TTL_SECONDS * 1000,
+    path: "/"
+  });
+
+  // TODO: Redirect to frontend app URL
   res.send("Spotify linked! You can close this tab. (For demo, userId = " + userId + ")");
 }

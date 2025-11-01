@@ -1,6 +1,6 @@
 // src/routes/auth.ts
 import express, { Request, Response } from "express";
-import { handleCallback } from "../services/auth";
+import { handleCallback, getSessionHandler, logoutHandler } from "../services/auth";
 import { delSession, getSession } from "../lib/session";
 import { REDIS_ACCESS_KEY, REDIS_REFRESH_KEY } from "../services/spotify";
 import { redis } from "../lib/redis";
@@ -28,23 +28,52 @@ function spotifyAuthUrl(state: string) {
   return u.toString();
 }
 
+// Start OAuth: /auth/spotify?userId=...
 router.get("/spotify", (req: Request, res: Response) => {
   const userId = String(req.query.userId || "demo-user");
   const state = userId;
   res.redirect(spotifyAuthUrl(state));
 });
 
+// OAuth callback: /auth/spotify/callback
 router.get("/spotify/callback", async (req: Request, res: Response) => {
-    try {
-      await handleCallback(req, res);
-    } catch (err: any) {
-      console.error("callback error", err);
-      res.status(500).send(String(err.message || err));
-    }
-  });
+  try {
+    await handleCallback(req, res);
+  } catch (err: any) {
+    console.error("callback error", err);
+    res.status(500).send(String(err.message || err));
+  }
+});
 
-// routes/auth.ts - robust logout
-router.get("/logout", async (req: Request, res: Response) => {
+/**
+ * Session check endpoint
+ * GET /auth/session
+ * -> 200 { authenticated: true, userId }  OR  401 { authenticated: false }
+ *
+ * Note: frontend calls GET /auth/session to decide whether to redirect to /search
+ */
+router.get("/session", async (req: Request, res: Response) => {
+  try {
+    const sessionId = req.cookies?.[COOKIE_NAME];
+    if (!sessionId) return res.status(401).json({ authenticated: false });
+
+    const session = await getSession(sessionId);
+    if (!session) return res.status(401).json({ authenticated: false });
+
+    return res.status(200).json({ authenticated: true, userId: session.userId });
+  } catch (err) {
+    console.error("session route error", err);
+    return res.status(500).json({ authenticated: false });
+  }
+});
+
+/**
+ * Unified logout handler function (reused for GET & POST)
+ *
+ * POST /auth/logout   (preferred; matches frontend)
+ * GET  /auth/logout   (kept for convenience / browser testing)
+ */
+async function routeLogout(req: Request, res: Response) {
   try {
     console.log("[logout] called");
     const sessionId = req.cookies?.[COOKIE_NAME];
@@ -80,7 +109,6 @@ router.get("/logout", async (req: Request, res: Response) => {
     res.clearCookie(COOKIE_NAME, cookieOptions);
 
     // Belt-and-suspenders: explicitly set an expiring Set-Cookie header
-    // Make sure attributes here match cookieOptions above (same path, SameSite, Secure).
     const expires = new Date(0).toUTCString();
     const secureFlag = cookieOptions.secure ? "Secure; " : "";
     const sameSite = "SameSite=Lax; "; // matches cookieOptions.sameSite
@@ -99,7 +127,10 @@ router.get("/logout", async (req: Request, res: Response) => {
     console.error("Logout error:", err);
     return res.status(500).json({ ok: false, error: "Server error during logout" });
   }
-});
+}
 
+// wire both GET and POST to the same handler (frontend uses POST)
+router.get("/logout", routeLogout);
+router.post("/logout", routeLogout);
 
 export default router;

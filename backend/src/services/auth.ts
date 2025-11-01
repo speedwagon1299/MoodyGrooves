@@ -1,6 +1,7 @@
-import fetch from "node-fetch"; // if node version <18; otherwise use global fetch
+// src/services/auth.ts
+import fetch from "node-fetch"; // if node < 18. If Node >= 18 you can remove this import.
 import { redis } from "../lib/redis";
-import { createSession } from "../lib/session";
+import { createSession, getSession, delSession } from "../lib/session";
 import { encrypt } from "../utils/crypto";
 import { StoredRefresh, TokenResponse } from "@/types";
 import { Request, Response } from "express";
@@ -13,16 +14,11 @@ const COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "moody_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
 /**
- * Exchange authorization code for tokens, store refresh token (encrypted) in Redis.
- * TODO: Store refresh_token in persistent DB as well, not just redis.
- * - https://developer.spotify.com/documentation/web-api/tutorials/code-flow
- * - https://developer.spotify.com/documentation/web-api/concepts/access-token
- * - https://developer.spotify.com/documentation/web-api/tutorials/refreshing-tokens
+ * OAuth callback handler: exchange code -> tokens, store tokens, create session cookie,
+ * then redirect browser to FRONTEND_URL/search.
  */
 export async function handleCallback(req: Request, res: Response) {
-  // authorization code to be exchanged for an access token
   const code = String(req.query.code || "");
-  // value of state param passed in /auth/spotify
   const state = String(req.query.state || "");
   if (!code) return res.status(400).send("Missing code");
 
@@ -47,10 +43,9 @@ export async function handleCallback(req: Request, res: Response) {
 
   const data = await tokenRes.json() as TokenResponse; // access_token, refresh_token, expires_in, scope
 
-
   const userId = state || "demo-user";
 
-  // Check for refresh token and store
+  // Persist refresh token (encrypted) into Redis if available
   if (!data.refresh_token) {
     console.warn("No refresh token returned:", data);
   } else {
@@ -58,19 +53,17 @@ export async function handleCallback(req: Request, res: Response) {
       encryptedRefreshToken: encrypt(String(data.refresh_token)),
       scopes: data.scope ? String(data.scope).split(" ") : []
     };
-    // Persist refresh token (encrypted) into Redis
     await redis.set(REDIS_REFRESH_KEY(userId), JSON.stringify(stored));
   }
 
-  // Check for access token and store with TTL
+  // Store access token with TTL in Redis (short-lived)
   if (data.access_token && data.expires_in) {
     const expiresAt = Date.now() + data.expires_in * 1000;
     const value = JSON.stringify({ token: data.access_token, expiresAt });
-    // -30 msfor safety margin
     await redis.set(REDIS_ACCESS_KEY(userId), value, { PX: (data.expires_in - 30) * 1000 });
   }
 
-  // Create a server-side session and set httpOnly cookie.
+  // Create server-side session and set httpOnly cookie
   const sessionPayload = {
     userId,
     createdAt: Date.now(),
@@ -80,12 +73,53 @@ export async function handleCallback(req: Request, res: Response) {
   // set cookie (httpOnly so JS cannot read it)
   res.cookie(COOKIE_NAME, sessionId, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production", // set true in prod with HTTPS
+    secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     maxAge: SESSION_TTL_SECONDS * 1000,
     path: "/"
   });
 
-  // TODO: Redirect to frontend app URL
-  res.send("Spotify linked! You can close this tab. (For demo, userId = " + userId + ")");
+  // Redirect to frontend app URL (search page)
+  const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+  const redirectTo = new URL("/search", FRONTEND_URL).toString();
+  return res.redirect(302, redirectTo);
+}
+
+/**
+ * GET /auth/session
+ * Check whether the current request has a valid session cookie.
+ * Returns 200 { authenticated: true, userId } or 401 { authenticated: false }.
+ */
+export async function getSessionHandler(req: Request, res: Response) {
+  try {
+    const sessionId = req.cookies?.[COOKIE_NAME];
+    if (!sessionId) return res.status(401).json({ authenticated: false });
+
+    const session = await getSession(sessionId);
+    if (!session) return res.status(401).json({ authenticated: false });
+
+    return res.json({ authenticated: true, userId: session.userId });
+  } catch (err) {
+    console.error("session check error", err);
+    return res.status(500).json({ authenticated: false });
+  }
+}
+
+/**
+ * POST /auth/logout
+ * Destroy server session and clear cookie.
+ */
+export async function logoutHandler(req: Request, res: Response) {
+  try {
+    const sessionId = req.cookies?.[COOKIE_NAME];
+    if (sessionId) {
+      await delSession(sessionId);
+    }
+    // clear cookie
+    res.clearCookie(COOKIE_NAME, { path: "/" });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("logout error", err);
+    return res.status(500).json({ ok: false });
+  }
 }

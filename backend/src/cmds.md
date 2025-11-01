@@ -10,4 +10,3 @@ http://localhost:4000/auth/spotify?userId=speedwagon1299 - to authorize user
 http://localhost:4000/api/playlists - to get all playlists
 
 http://localhost:4000/auth/logout - to logout
-

@@ -2,6 +2,7 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
+import cors from 'cors';
 dotenv.config();
 
 import { startRedis } from "./lib/redis";
@@ -11,6 +12,10 @@ import apiRoutes from "./routes/api";
 async function main() {
   await startRedis();
   const app = express();
+  app.use(cors({
+    origin: 'http://localhost:5173', // your frontend URL
+    credentials: true,               // allow cookies to be sent
+  }));
   app.use(express.json());
   app.use(cookieParser());
 

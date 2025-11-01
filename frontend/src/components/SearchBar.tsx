@@ -1,3 +1,4 @@
+// src/components/SearchBar.tsx
 
 type Props = {
   query: string
@@ -17,7 +18,7 @@ export default function SearchBar({ query, onChange, onSubmit }: Props) {
       <div className="input-group">
         <input
           className="form-control"
-          placeholder="Enter words or phrase to find similar-tone songs..."
+          placeholder="Search for Playlists"
           value={query}
           onChange={(e) => onChange(e.target.value)}
         />

@@ -9,12 +9,22 @@ body {
   margin: 2rem auto;
   padding: 1rem;
 }
+
+/* ensure playlist grid spacing and consistent card heights */
 .playlist-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 1rem;
+  align-items: start; /* prevent stretch weirdness */
 }
-.playlist-card img {
+
+.playlist-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.playlist-card .card-img-top {
   width: 100%;
   height: 140px;
   object-fit: cover;

@@ -23,9 +23,6 @@ export default function Home() {
             <button className="btn btn-success" onClick={handleLogin}>
               Login with Spotify
             </button>
-            <button className="btn btn-outline-secondary" onClick={() => navigate('/search')}>
-              (dev) go to search — requires backend session
-            </button>
           </div>
 
           <small className="d-block mt-3 text-muted">

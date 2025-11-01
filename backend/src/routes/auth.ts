@@ -1,8 +1,9 @@
 // src/routes/auth.ts
 import express, { Request, Response } from "express";
 import { handleCallback } from "../services/auth";
-import { delSession } from "../lib/session";
-import requireAuth from "../middleware/requireAuth";
+import { delSession, getSession } from "../lib/session";
+import { REDIS_ACCESS_KEY, REDIS_REFRESH_KEY } from "../services/spotify";
+import { redis } from "../lib/redis";
 
 const router = express.Router();
 
@@ -23,6 +24,7 @@ function spotifyAuthUrl(state: string) {
   u.searchParams.set("redirect_uri", SPOTIFY_REDIRECT_URI);
   u.searchParams.set("state", state);
   u.searchParams.set("scope", scopes);
+  u.searchParams.set("show_dialog", "true");
   return u.toString();
 }
 
@@ -41,34 +43,63 @@ router.get("/spotify/callback", async (req: Request, res: Response) => {
     }
   });
 
+// routes/auth.ts - robust logout
 router.get("/logout", async (req: Request, res: Response) => {
   try {
+    console.log("[logout] called");
     const sessionId = req.cookies?.[COOKIE_NAME];
+    console.log("[logout] sessionId from cookie:", sessionId);
+
     if (sessionId) {
+      const session = await getSession(sessionId);
+      console.log("[logout] session from redis:", !!session);
+
+      if (session && session.userId) {
+        const userId = session.userId as string;
+        await redis.del(REDIS_ACCESS_KEY(userId));
+        await redis.del(REDIS_REFRESH_KEY(userId));
+        console.log(`[logout] deleted redis tokens for ${userId}`);
+      }
+
       await delSession(sessionId);
-      res.clearCookie(COOKIE_NAME, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-      });
+      console.log("[logout] deleted session key in redis");
+    } else {
+      console.log("[logout] no sessionId present on request");
     }
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error("logout error", err);
-    // attempt to clear cookie anyway
-    res.clearCookie(COOKIE_NAME, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+
+    // Use the exact same attributes you used when setting the cookie
+    const cookieOptions = {
       path: "/",
-    });
-    return res.status(500).json({ ok: false });
+      httpOnly: true,
+      sameSite: "lax" as const,
+      secure: process.env.NODE_ENV === "production"
+      // do NOT set domain here if you didn't set domain when creating the cookie
+    };
+
+    // This should add a Set-Cookie header that clears the cookie
+    res.clearCookie(COOKIE_NAME, cookieOptions);
+
+    // Belt-and-suspenders: explicitly set an expiring Set-Cookie header
+    // Make sure attributes here match cookieOptions above (same path, SameSite, Secure).
+    const expires = new Date(0).toUTCString();
+    const secureFlag = cookieOptions.secure ? "Secure; " : "";
+    const sameSite = "SameSite=Lax; "; // matches cookieOptions.sameSite
+    const httpOnly = "HttpOnly; ";
+    const path = "Path=/; ";
+
+    res.setHeader(
+      "Set-Cookie",
+      `${COOKIE_NAME}=; Expires=${expires}; ${path}${httpOnly}${secureFlag}${sameSite}`
+    );
+
+    console.log("[logout] emitted Set-Cookie header to expire cookie");
+
+    return res.status(200).json({ ok: true, message: "Fully logged out" });
+  } catch (err) {
+    console.error("Logout error:", err);
+    return res.status(500).json({ ok: false, error: "Server error during logout" });
   }
 });
 
-router.get("/whoami", requireAuth, (req, res) => {
-  res.json({ userId: (req as any).user.userId });
-});
 
 export default router;

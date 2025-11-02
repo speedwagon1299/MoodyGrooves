@@ -9,6 +9,6 @@ export interface Playlist {
   name: string
   description?: string | null
   images: PlaylistImage[]
-  tracks?: { total?: number }
+  tracks?: { href?: string, total?: number }
   owner?: { display_name?: string; id?: string }
 }

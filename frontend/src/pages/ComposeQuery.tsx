@@ -3,14 +3,14 @@ import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 type LocationState = {
-  selectedIds?: string[]
+  hrefs?: string[]
 }
 
 export default function ComposeQuery() {
   const nav = useNavigate()
   const location = useLocation()
   const state = location.state as LocationState | null
-  const selectedIds = state?.selectedIds || []
+  const hrefs = state?.hrefs || []
 
   const [phrase, setPhrase] = useState('')
 
@@ -20,17 +20,12 @@ export default function ComposeQuery() {
       alert('Please enter a phrase or word to continue.')
       return
     }
-    // Here you would POST phrase + selectedIds to your backend or process them.
-    // MARKED PLACE: add your main project integration here.
-    // ---------------------------
-    // TODO: ADD MAIN PROJECT INTEGRATION HERE
-    // Example: fetch('/api/search-by-phrase', { method: 'POST', credentials: 'include', body: JSON.stringify({ phrase, playlistIds: selectedIds }) })
-    // ---------------------------
-    console.log('Phrase submitted:', { phrase, selectedIds })
-    alert('Phrase submitted — check console for details. Implement backend call at the marked TODO.')
+
+    // TODO: backend call with phrase and playlist hrefs
+    console.log('Phrase submitted:', { phrase, hrefs })
   }
 
-  if (!selectedIds.length) {
+  if (!hrefs.length) {
     return (
       <div className="app-container">
         <div className="alert alert-warning">
@@ -46,7 +41,7 @@ export default function ComposeQuery() {
   return (
     <div className="app-container">
       <h4>Enter the phrase or word to use</h4>
-      <p className="text-muted">Selected playlists: {selectedIds.length}</p>
+      <p className="text-muted">Selected playlists: {hrefs.length}</p>
 
       <div className="mb-3">
         <input

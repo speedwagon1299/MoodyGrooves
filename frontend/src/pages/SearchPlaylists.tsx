@@ -1,4 +1,3 @@
-// src/pages/SearchPlaylists.tsx
 import { useEffect, useState } from 'react'
 import type { Playlist } from '../types/spotify'
 import { getPlaylists, logout } from '../services/api'
@@ -12,11 +11,12 @@ export default function SearchPlaylists() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [playlists, setPlaylists] = useState<Playlist[]>([])
-  const [selected, setSelected] = useState<Record<string, boolean>>({}) // default: none selected
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const navigate = useNavigate()
 
+  // Fetch playlists on load
   useEffect(() => {
     let mounted = true
     setLoading(true)
@@ -24,10 +24,7 @@ export default function SearchPlaylists() {
       .then((items) => {
         if (!mounted) return
         setPlaylists(items)
-        // default: none selected
-        const initial: Record<string, boolean> = {}
-        items.forEach((p) => (initial[p.id] = false))
-        setSelected(initial)
+        setSelected(new Set()) // start with nothing selected
         setCurrentPage(1)
       })
       .catch((err) => {
@@ -44,42 +41,36 @@ export default function SearchPlaylists() {
     }
   }, [navigate])
 
-  // Filter playlists by query (search among playlist names)
+  // Filter playlists by search query
   const filtered = playlists.filter((p) =>
     p.name.toLowerCase().includes(query.toLowerCase())
   )
 
-  // Pagination calculations
+  // Pagination
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   useEffect(() => {
-    // if current page becomes out of range after filtering, reset to last page
     if (currentPage > totalPages) setCurrentPage(totalPages)
   }, [totalPages, currentPage])
 
   const startIdx = (currentPage - 1) * PAGE_SIZE
   const pageItems = filtered.slice(startIdx, startIdx + PAGE_SIZE)
 
+  // Selection helpers
   const toggle = (id: string) => {
-    setSelected((prev) => ({ ...prev, [id]: !prev[id] }))
-  }
-
-  const selectedIds = Object.entries(selected).filter(([_, v]) => v).map(([k]) => k)
-
-  const handleContinue = () => {
-    if (selectedIds.length === 0) return
-    navigate('/compose', { state: { selectedIds } })
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   const selectAll = () => {
-    const all: Record<string, boolean> = {}
-    playlists.forEach((p) => (all[p.id] = true))
-    setSelected(all)
+    setSelected(new Set(playlists.map((p) => p.id)))
   }
 
   const deselectAll = () => {
-    const none: Record<string, boolean> = {}
-    playlists.forEach((p) => (none[p.id] = false))
-    setSelected(none)
+    setSelected(new Set())
   }
 
   const goToPage = (n: number) => {
@@ -88,17 +79,43 @@ export default function SearchPlaylists() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  // Continue -> extract hrefs and navigate
+  const handleContinue = () => {
+    const selectedIds = Array.from(selected)
+    if (selectedIds.length === 0) return
+
+    // get only playlists that exist and have tracks.href
+    const selectedPlaylists = selectedIds
+      .map((id) => playlists.find((p) => p.id === id))
+      .filter((p): p is Playlist => Boolean(p && p.tracks?.href))
+
+    const hrefs = selectedPlaylists.map((p) => p.tracks!.href!)
+
+    // navigate with only the hrefs needed for ComposeQuery
+    navigate('/compose', { state: { hrefs } })
+  }
+
+  const selectedCount = selected.size
+
   return (
     <div className="app-container">
       <div className="d-flex justify-content-between align-items-center mb-3">
         <h4>Choose playlists to include</h4>
         <div>
-          <button className="btn btn-outline-secondary me-2" onClick={() => navigate('/')}>
+          <button
+            className="btn btn-outline-secondary me-2"
+            onClick={() => navigate('/')}
+          >
             Home
           </button>
-          <button className="btn btn-outline-danger" onClick={() => {
-            logout().finally(() => navigate('/'))
-          }}>Logout</button>
+          <button
+            className="btn btn-outline-danger"
+            onClick={() => {
+              logout().finally(() => navigate('/'))
+            }}
+          >
+            Logout
+          </button>
         </div>
       </div>
 
@@ -106,26 +123,32 @@ export default function SearchPlaylists() {
         query={query}
         onChange={(q) => {
           setQuery(q)
-          setCurrentPage(1) // reset to first page when searching
+          setCurrentPage(1)
         }}
-        onSubmit={() => { /* search handled client-side */ }}
+        onSubmit={() => {}}
       />
 
       <div className="mb-3 d-flex align-items-center justify-content-between">
         <div>
-          <strong>{selectedIds.length}</strong> selected
+          <strong>{selectedCount}</strong> selected
           <span className="text-muted ms-2"> / {playlists.length} playlists</span>
         </div>
         <div className="btn-group">
-          <button className="btn btn-sm btn-outline-primary" onClick={selectAll}>Select all</button>
-          <button className="btn btn-sm btn-outline-secondary" onClick={deselectAll}>Deselect all</button>
+          <button className="btn btn-sm btn-outline-primary" onClick={selectAll}>
+            Select all
+          </button>
+          <button
+            className="btn btn-sm btn-outline-secondary"
+            onClick={deselectAll}
+          >
+            Deselect all
+          </button>
         </div>
       </div>
 
       {loading && <div className="alert alert-info">Loading playlists...</div>}
       {error && <div className="alert alert-danger">{error}</div>}
 
-      {/* Grid of playlists for current page */}
       <div className="playlist-grid">
         {pageItems.length === 0 && !loading && (
           <div className="text-muted">No playlists match your search.</div>
@@ -134,64 +157,70 @@ export default function SearchPlaylists() {
           <PlaylistCard
             key={p.id}
             playlist={p}
-            checked={!!selected[p.id]}
+            checked={selected.has(p.id)}
             onToggle={toggle}
           />
         ))}
       </div>
 
-      {/* Pagination controls */}
       <div className="d-flex justify-content-between align-items-center mt-3">
         <div>
-          <button className="btn btn-sm btn-outline-secondary me-2" onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1}>
+          <button
+            className="btn btn-sm btn-outline-secondary me-2"
+            onClick={() => goToPage(currentPage - 1)}
+            disabled={currentPage === 1}
+          >
             ← Prev
           </button>
-          <button className="btn btn-sm btn-outline-secondary me-2" onClick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages}>
-            Next →
+          <button
+            className="btn btn-sm btn-outline-secondary me-2"
+            onClick={() => goToPage(currentPage + 1)}
+            disabled={currentPage === totalPages}
+          >
+            Next → 
           </button>
-
-          <span className="ms-3 text-muted">Page {currentPage} of {totalPages}</span>
+          <span className="ms-3 text-muted">
+            Page {currentPage} of {totalPages}
+          </span>
         </div>
 
-        {/* Optional: show small page jump */}
-        <div>
-          {totalPages <= 10 ? (
-            // show page buttons when few pages
-            Array.from({ length: totalPages }).map((_, i) => {
+        {totalPages <= 10 ? (
+          <div>
+            {Array.from({ length: totalPages }).map((_, i) => {
               const p = i + 1
               return (
                 <button
                   key={p}
-                  className={`btn btn-sm ${p === currentPage ? 'btn-primary' : 'btn-outline-primary'} me-1`}
+                  className={`btn btn-sm ${
+                    p === currentPage ? 'btn-primary' : 'btn-outline-primary'
+                  } me-1`}
                   onClick={() => goToPage(p)}
                 >
                   {p}
                 </button>
               )
-            })
-          ) : (
-            // compact input for many pages
-            <div className="input-group input-group-sm" style={{ width: 120 }}>
-              <input
-                type="number"
-                className="form-control"
-                min={1}
-                max={totalPages}
-                value={currentPage}
-                onChange={(e) => goToPage(Number(e.target.value || 1))}
-              />
-              <span className="input-group-text">/ {totalPages}</span>
-            </div>
-          )}
-        </div>
+            })}
+          </div>
+        ) : (
+          <div className="input-group input-group-sm" style={{ width: 120 }}>
+            <input
+              type="number"
+              className="form-control"
+              min={1}
+              max={totalPages}
+              value={currentPage}
+              onChange={(e) => goToPage(Number(e.target.value || 1))}
+            />
+            <span className="input-group-text">/ {totalPages}</span>
+          </div>
+        )}
       </div>
 
-      {/* Continue button sits below pagination */}
       <div className="mt-4 d-flex justify-content-end">
         <button
-          className={selectedIds.length > 0 ? "btn btn-success" : "btn btn-secondary"}
+          className={selectedCount > 0 ? 'btn btn-success' : 'btn btn-secondary'}
           onClick={handleContinue}
-          disabled={selectedIds.length === 0}
+          disabled={selectedCount === 0}
         >
           Continue
         </button>

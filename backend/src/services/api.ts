@@ -1,7 +1,6 @@
-import fetch from "node-fetch"; // if node version <18; otherwise use global fetch
 import { redis } from "../lib/redis";
 import { encrypt, decrypt } from "../utils/crypto";
-import { StoredRefresh, TokenResponse, CurrentUserPlaylists } from "@/types";
+import { StoredRefresh, TokenResponse, CurrentUserPlaylists, PlaylistTracksPage } from "@/types";
 
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID!;
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET!;
@@ -163,4 +162,67 @@ export async function fetchAllPlaylists(userId: string): Promise<{ profile: any;
   }
 
   return { profile, playlists };
+}
+
+/**
+ * fetchAllSongsFromPlaylists(userId, hrefs)
+ * - For each playlist href, fetches all tracks with pagination
+ * - Deduplicates tracks by "song by artist"
+ * - Logs the full unique list to console
+ */
+export async function fetchAllSongsFromPlaylists(userId: string, hrefs: string[]): Promise<void> {
+  const songSet = new Set<string>();
+  const limit = 100;
+
+  for (const href of hrefs) {
+    if (!href) continue;
+
+    let offset = 0;
+    while (true) {
+      const url = new URL(href);
+      url.searchParams.set("market", "ES");
+      url.searchParams.set("fields", "items(track.artists.name,track.name)");
+      url.searchParams.set("limit", String(limit));
+      url.searchParams.set("offset", String(offset));
+
+      let token = await getValidAccessToken(userId);
+      let r = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (r.status === 401) {
+        // Refresh and retry once
+        token = await getValidAccessToken(userId);
+        r = await fetch(url.toString(), {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
+
+      if (!r.ok) {
+        const txt = await r.text().catch(() => "");
+        console.error(`Failed fetching tracks for ${href}: ${r.status} ${txt}`);
+        break;
+      }
+
+      const page = (await r.json()) as PlaylistTracksPage;
+      const items = page.items || [];
+
+      for (const it of items) {
+        const track = it.track;
+        if (!track?.name) continue;
+        const name = track.name.trim();
+        const artist = track.artists?.[0]?.name?.trim() || "Unknown Artist";
+        songSet.add(`${name} by ${artist}`);
+      }
+
+      if (!page.next || items.length === 0) break;
+      offset += items.length;
+    }
+  }
+
+  const uniqueSongs = Array.from(songSet);
+  console.log(`\nTotal unique songs fetched: ${uniqueSongs.length}`);
+  console.log(uniqueSongs);
 }

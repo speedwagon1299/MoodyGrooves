@@ -24,6 +24,33 @@ export async function getPlaylists(): Promise<Playlist[]> {
   return data.playlists || []
 }
 
+export async function getTracks(hrefs: string[]): Promise<void> {
+  if (!Array.isArray(hrefs) || hrefs.length === 0) {
+    throw new Error("hrefs_required")
+  }
+
+  const res = await fetch(`${BASE}/api/tracks`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ hrefs }),
+  })
+
+  if (res.status === 401) throw new Error("unauthorized")
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "")
+    throw new Error(`Failed to fetch tracks: ${res.status} ${text}`)
+  }
+
+  const data = await res.json()
+  console.log("Backend response:", data.message)
+}
+
+
 /**
  * Return auth URL for Spotify authorization on your backend.
  * Pass a userId when calling if you want a specific userId supplied.

@@ -1,11 +1,10 @@
 // src/services/auth.ts
-import fetch from "node-fetch"; // if node < 18. If Node >= 18 you can remove this import.
 import { redis } from "../lib/redis";
 import { createSession, getSession, delSession } from "../lib/session";
 import { encrypt } from "../utils/crypto";
 import { StoredRefresh, TokenResponse } from "@/types";
 import { Request, Response } from "express";
-import { REDIS_REFRESH_KEY, REDIS_ACCESS_KEY } from "../services/spotify";
+import { REDIS_REFRESH_KEY, REDIS_ACCESS_KEY } from "./api";
 
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID!;
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET!;

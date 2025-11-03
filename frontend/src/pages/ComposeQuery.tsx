@@ -1,6 +1,7 @@
 // src/pages/ComposeQuery.tsx
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { getTracks } from '../services/api'
 
 type LocationState = {
   hrefs?: string[]
@@ -14,13 +15,18 @@ export default function ComposeQuery() {
 
   const [phrase, setPhrase] = useState('')
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     // Basic validation
     if (!phrase.trim()) {
       alert('Please enter a phrase or word to continue.')
       return
     }
-
+    try {
+      await getTracks(hrefs)
+      alert("Songs fetched and logged in backend console!")
+    } catch (err) {
+      console.error("Error calling getTracks:", err)
+    }
     // TODO: backend call with phrase and playlist hrefs
     console.log('Phrase submitted:', { phrase, hrefs })
   }

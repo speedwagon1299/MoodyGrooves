@@ -1,4 +1,4 @@
 
-export * from './spotify';
+export * from './api.d';
 export * from './auth';
-export * from './spotify.d';
+export * from './api';

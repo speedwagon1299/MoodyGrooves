@@ -1,6 +1,6 @@
 import { redis } from "../lib/redis";
 import { encrypt, decrypt } from "../utils/crypto";
-import { StoredRefresh, TokenResponse, CurrentUserPlaylists, PlaylistTracksPage } from "@/types";
+import { StoredRefresh, TokenResponse, CurrentUserPlaylists, PlaylistTracksPage,TrackInfo } from "@/types";
 
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID!;
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET!;
@@ -167,11 +167,13 @@ export async function fetchAllPlaylists(userId: string): Promise<{ profile: any;
 /**
  * fetchAllSongsFromPlaylists(userId, hrefs)
  * - For each playlist href, fetches all tracks with pagination
- * - Deduplicates tracks by "song by artist"
- * - Logs the full unique list to console
+ * - Deduplicates tracks by "song by artist" and by Spotify track ID
+ * - Returns { uniqueSongs: string[], uniqueHrefIds: string[] }
+ * - https://developer.spotify.com/documentation/web-api/reference/get-playlists-tracks
  */
-export async function fetchAllSongsFromPlaylists(userId: string, hrefs: string[]): Promise<void> {
+export async function fetchAllSongsFromPlaylists(userId: string, hrefs: string[]): Promise<{ uniqueSongs: string[]; uniqueHrefIds: string[] }> {
   const songSet = new Set<string>();
+  const hrefIdSet = new Set<string>();
   const limit = 100;
 
   for (const href of hrefs) {
@@ -181,7 +183,7 @@ export async function fetchAllSongsFromPlaylists(userId: string, hrefs: string[]
     while (true) {
       const url = new URL(href);
       url.searchParams.set("market", "ES");
-      url.searchParams.set("fields", "items(track.artists.name,track.name)");
+      url.searchParams.set("fields", "items(track.artists.name,track.name,track.href)");
       url.searchParams.set("limit", String(limit));
       url.searchParams.set("offset", String(offset));
 
@@ -215,6 +217,11 @@ export async function fetchAllSongsFromPlaylists(userId: string, hrefs: string[]
         const name = track.name.trim();
         const artist = track.artists?.[0]?.name?.trim() || "Unknown Artist";
         songSet.add(`${name} by ${artist}`);
+        
+        const href = track.href || "";
+        // get only spotify track ID
+        const hrefId = href.substring(href.lastIndexOf("/") + 1);
+        hrefIdSet.add(hrefId || "");
       }
 
       if (!page.next || items.length === 0) break;
@@ -223,6 +230,77 @@ export async function fetchAllSongsFromPlaylists(userId: string, hrefs: string[]
   }
 
   const uniqueSongs = Array.from(songSet);
-  console.log(`\nTotal unique songs fetched: ${uniqueSongs.length}`);
-  console.log(uniqueSongs);
+  const uniqueHrefIds = Array.from(hrefIdSet);
+  return { uniqueSongs, uniqueHrefIds };
+}
+
+
+/**
+ * Fetch detailed track information for up to N track IDs (Spotify allows up to 50 per request).
+ * https://developer.spotify.com/documentation/web-api/reference/get-several-tracks
+ * @param userId - your internal user id (used to get a valid Spotify access token)
+ * @param trackIds - array of Spotify track IDs (e.g. ["4YzzeycRmg12c4SzgJDrFx", ...])
+ * @returns Promise<TrackInfo[]>
+ */
+export async function fetchTracksInfo(
+  userId: string,
+  trackIds: string[]
+): Promise<TrackInfo[]> {
+  if (!Array.isArray(trackIds) || trackIds.length === 0) return [];
+
+  const BATCH_SIZE = 50;
+  const batches: string[][] = [];
+  for (let i = 0; i < trackIds.length; i += BATCH_SIZE) {
+    batches.push(trackIds.slice(i, i + BATCH_SIZE));
+  }
+
+  // helper to fetch a single batch, with retry on 401
+  async function fetchBatch(ids: string[]): Promise<TrackInfo[]> {
+    const url = `https://api.spotify.com/v1/tracks?ids=${ids.join(",")}`;
+
+    let token = await getValidAccessToken(userId);
+    let res = await fetch(url, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (res.status === 401) {
+      // refresh and retry once
+      token = await getValidAccessToken(userId);
+      res = await fetch(url, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Failed to fetch tracks info: ${res.status} ${text}`);
+    }
+
+    const body = (await res.json()) as { tracks?: Array<any | null> };
+    const items = body.tracks || [];
+
+    const out: TrackInfo[] = [];
+    for (const t of items) {
+      if (!t) continue; // may return null for invalid tracks
+      const id: string = t.id;
+      const name: string = t.name ?? "";
+      const artists: string[] = Array.isArray(t.artists)
+        ? t.artists.map((a: any) => a?.name ?? "").filter(Boolean)
+        : [];
+      const album: string = t.album?.name ?? "";
+      const durationMs: number = typeof t.duration_ms === "number" ? t.duration_ms : Number(t.duration) || 0;
+      out.push({ id, name, artists, album, durationMs });
+    }
+    return out;
+  }
+
+  const results: TrackInfo[] = [];
+  for (const batch of batches) {
+    const r = await fetchBatch(batch);
+    results.push(...r);
+  }
+
+  return results;
 }

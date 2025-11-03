@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { getTracks } from '../services/api'
+import type { TrackInfo } from '../types/spotify'
 
 type LocationState = {
   hrefs?: string[]
@@ -22,8 +23,9 @@ export default function ComposeQuery() {
       return
     }
     try {
-      await getTracks(hrefs)
-      alert("Songs fetched and logged in backend console!")
+      const songTracks: TrackInfo[] = await getTracks(phrase, hrefs)
+      console.log("Retrieved tracks:", songTracks)
+      // TODO: Using songTracks to retrieve data of all tracks from spotify api
     } catch (err) {
       console.error("Error calling getTracks:", err)
     }

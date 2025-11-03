@@ -1,6 +1,6 @@
 // src/routes/auth.ts
 import express, { Request, Response } from "express";
-import { handleCallback, getSessionHandler, logoutHandler } from "../services/auth";
+import { handleCallback } from "../services/auth";
 import { delSession, getSession } from "../lib/session";
 import { REDIS_ACCESS_KEY, REDIS_REFRESH_KEY } from "../services/api";
 import { redis } from "../lib/redis";

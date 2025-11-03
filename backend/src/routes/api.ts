@@ -1,7 +1,8 @@
 // src/routes/api.ts
 import express from "express";
 import requireAuth from "../middleware/requireAuth";
-import { fetchAllPlaylists, fetchAllSongsFromPlaylists } from "../services/api";
+import { fetchAllPlaylists, fetchAllSongsFromPlaylists, fetchTracksInfo } from "../services/api";
+import { classifySongs } from "../services/gemini";
 
 const router = express.Router();
 
@@ -24,7 +25,7 @@ router.get("/playlists", requireAuth, async (req, res) => {
 router.post("/tracks", requireAuth, async (req, res) => {
   try {
     const userId = (req as any).user.userId;
-    const { hrefs } = req.body;
+    const { hrefs, phrase } = req.body;
 
     if (!Array.isArray(hrefs) || hrefs.length === 0) {
       return res
@@ -34,13 +35,20 @@ router.post("/tracks", requireAuth, async (req, res) => {
 
     console.log(`Received ${hrefs.length} playlist hrefs.`);
     console.log(hrefs);
+    
+    // fetch all the songs from the provided playlists along with their hrefs
+    const { uniqueSongs, uniqueHrefIds } = await fetchAllSongsFromPlaylists(userId, hrefs);
 
-    // Fetch and print songs directly in the backend log
-    await fetchAllSongsFromPlaylists(userId, hrefs);
+    // classify songs using Gemini
+    const matches = await classifySongs(phrase, uniqueSongs);
 
-    return res.json({
-      message: "Song list fetched successfully and printed to console.",
-    });
+    // filter hrefs based on matches
+    const filteredHrefIds = uniqueHrefIds.filter((_, i) => matches[i]);
+
+    const filteredSongs = await fetchTracksInfo(userId, filteredHrefIds);
+
+    return res.json({ tracks: filteredSongs });
+
   } catch (err: any) {
     console.error("failed fetchAllSongsFromPlaylists:", err);
     if (

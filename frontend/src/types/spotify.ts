@@ -20,3 +20,7 @@ export interface TrackInfo {
   album: string;
   durationMs: number;
 }
+
+export type LocationState = {
+  hrefs?: string[]
+}

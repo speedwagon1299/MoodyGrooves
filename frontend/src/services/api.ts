@@ -60,14 +60,8 @@ export async function getTracks(phrase: string, hrefs: string[]): Promise<TrackI
   return data.tracks
 }
 
-/**
- * Return auth URL for Spotify authorization on your backend.
- * Pass a userId when calling if you want a specific userId supplied.
- *
- * Example:
- *   getLoginUrl('speedwagon1299') -> http://localhost:4000/auth/spotify?userId=speedwagon1299
- */
-export function getLoginUrl(userId?: string) {
+/** Return auth URL for Spotify authorization on your backend. */
+export function getLoginUrl() {
   const base = `${BASE}/auth/spotify`
   if (!userId) return base
   // append as query param

@@ -25,9 +25,6 @@ export default function Home() {
             </button>
           </div>
 
-          <small className="d-block mt-3 text-muted">
-            The backend handles tokens & refresh; frontend uses session cookies.
-          </small>
         </div>
       </div>
     </div>

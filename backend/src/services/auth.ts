@@ -12,6 +12,23 @@ const SPOTIFY_REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI!;
 const COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "moody_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
+export function spotifyAuthUrl(state: string) {
+  const scopes = [
+    "playlist-read-private",
+    "playlist-modify-private",
+    "playlist-modify-public",
+  ].join(" ");
+
+  const u = new URL("https://accounts.spotify.com/authorize");
+  u.searchParams.set("client_id", SPOTIFY_CLIENT_ID);
+  u.searchParams.set("response_type", "code");
+  u.searchParams.set("redirect_uri", SPOTIFY_REDIRECT_URI);
+  u.searchParams.set("state", state);
+  u.searchParams.set("scope", scopes);
+  u.searchParams.set("show_dialog", "true");
+  return u.toString();
+}
+
 /**
  * OAuth callback handler: exchange code -> tokens, store tokens, create session cookie,
  * then redirect browser to FRONTEND_URL/search.
@@ -82,4 +99,66 @@ export async function handleCallback(req: Request, res: Response) {
   const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
   const redirectTo = new URL("/search", FRONTEND_URL).toString();
   return res.redirect(302, redirectTo);
+}
+
+/**
+ * Unified logout handler function (reused for GET & POST)
+ *
+ * POST /auth/logout   (preferred; matches frontend)
+ * GET  /auth/logout   (kept for convenience / browser testing)
+ */
+export async function routeLogout(req: Request, res: Response) {
+  try {
+    console.log("[logout] called");
+    const sessionId = req.cookies?.[COOKIE_NAME];
+    console.log("[logout] sessionId from cookie:", sessionId);
+
+    if (sessionId) {
+      const session = await getSession(sessionId);
+      console.log("[logout] session from redis:", !!session);
+
+      if (session && session.userId) {
+        const userId = session.userId as string;
+        await redis.del(REDIS_ACCESS_KEY(userId));
+        await redis.del(REDIS_REFRESH_KEY(userId));
+        console.log(`[logout] deleted redis tokens for ${userId}`);
+      }
+
+      await delSession(sessionId);
+      console.log("[logout] deleted session key in redis");
+    } else {
+      console.log("[logout] no sessionId present on request");
+    }
+
+    // Use the exact same attributes you used when setting the cookie
+    const cookieOptions = {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax" as const,
+      secure: process.env.NODE_ENV === "production"
+      // do NOT set domain here if you didn't set domain when creating the cookie
+    };
+
+    // This should add a Set-Cookie header that clears the cookie
+    res.clearCookie(COOKIE_NAME, cookieOptions);
+
+    // Belt-and-suspenders: explicitly set an expiring Set-Cookie header
+    const expires = new Date(0).toUTCString();
+    const secureFlag = cookieOptions.secure ? "Secure; " : "";
+    const sameSite = "SameSite=Lax; "; // matches cookieOptions.sameSite
+    const httpOnly = "HttpOnly; ";
+    const path = "Path=/; ";
+
+    res.setHeader(
+      "Set-Cookie",
+      `${COOKIE_NAME}=; Expires=${expires}; ${path}${httpOnly}${secureFlag}${sameSite}`
+    );
+
+    console.log("[logout] emitted Set-Cookie header to expire cookie");
+
+    return res.status(200).json({ ok: true, message: "Fully logged out" });
+  } catch (err) {
+    console.error("Logout error:", err);
+    return res.status(500).json({ ok: false, error: "Server error during logout" });
+  }
 }

@@ -2,10 +2,20 @@
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { getTracks } from '../services/api'
-import type { TrackInfo } from '../types/spotify'
+import type { TrackInfo, LocationState } from '../types/spotify'
 
-type LocationState = {
-  hrefs?: string[]
+// convert milliseconds to hh:mm:ss format
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  return hours > 0
+    ? `${hours}:${minutes.toString().padStart(2, '0')}:${seconds
+        .toString()
+        .padStart(2, '0')}`
+    : `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
 export default function ComposeQuery() {
@@ -15,22 +25,24 @@ export default function ComposeQuery() {
   const hrefs = state?.hrefs || []
 
   const [phrase, setPhrase] = useState('')
+  const [songTracks, setSongTracks] = useState<TrackInfo[]>([])
+  const [loading, setLoading] = useState(false)
 
   const handleSubmit = async () => {
-    // Basic validation
     if (!phrase.trim()) {
       alert('Please enter a phrase or word to continue.')
       return
     }
     try {
-      const songTracks: TrackInfo[] = await getTracks(phrase, hrefs)
-      console.log("Retrieved tracks:", songTracks)
-      // TODO: Using songTracks to retrieve data of all tracks from spotify api
+      setLoading(true)
+      const tracks = await getTracks(phrase, hrefs)
+      setSongTracks(tracks)
     } catch (err) {
-      console.error("Error calling getTracks:", err)
+      console.error('Error calling getTracks:', err)
+      alert('Error fetching tracks. Check console for details.')
+    } finally {
+      setLoading(false)
     }
-    // TODO: backend call with phrase and playlist hrefs
-    console.log('Phrase submitted:', { phrase, hrefs })
   }
 
   if (!hrefs.length) {
@@ -40,7 +52,9 @@ export default function ComposeQuery() {
           No playlists selected. Please go back and select at least one playlist.
         </div>
         <div className="d-flex">
-          <button className="btn btn-outline-secondary me-2" onClick={() => nav('/search')}>Back to playlists</button>
+          <button className="btn btn-outline-secondary me-2" onClick={() => nav('/search')}>
+            Back to playlists
+          </button>
         </div>
       </div>
     )
@@ -61,10 +75,41 @@ export default function ComposeQuery() {
         />
       </div>
 
-      <div className="d-flex gap-2">
-        <button className="btn btn-secondary" onClick={() => nav('/search')}>Back</button>
-        <button className="btn btn-primary" onClick={handleSubmit}>Use phrase</button>
+      <div className="d-flex gap-2 mb-4">
+        <button className="btn btn-secondary" onClick={() => nav('/search')}>
+          Back
+        </button>
+        <button className="btn btn-primary" onClick={handleSubmit} disabled={loading}>
+          {loading ? 'Loading...' : 'Use phrase'}
+        </button>
       </div>
+
+      {songTracks.length > 0 && (
+        <div className="table-responsive">
+          <table className="table table-striped align-middle">
+            <thead className="table-light">
+              <tr>
+                <th scope="col" style={{ width: '5%' }}>#</th>
+                <th scope="col" style={{ width: '40%' }}>Title</th>
+                <th scope="col" style={{ width: '25%' }}>Artists</th>
+                <th scope="col" style={{ width: '20%' }}>Album</th>
+                <th scope="col" style={{ width: '10%' }} className="text-end">Duration</th>
+              </tr>
+            </thead>
+            <tbody>
+              {songTracks.map((track, index) => (
+                <tr key={track.id}>
+                  <td>{index + 1}</td>
+                  <td>{track.name}</td>
+                  <td>{track.artists.join(', ')}</td>
+                  <td>{track.album}</td>
+                  <td className="text-end">{formatDuration(track.durationMs)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

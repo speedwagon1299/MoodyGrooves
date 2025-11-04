@@ -91,7 +91,7 @@ export async function createPlaylist({
   if (!name || !name.trim()) throw new Error("playlist_name_required");
   if (!Array.isArray(trackIds) || trackIds.length === 0) throw new Error("trackIds_required");
 
-  const res = await fetch(`${BASE}/api/createPlaylist`, {
+  const response = await fetch(`${BASE}/api/createPlaylist`, {
     method: "POST",
     credentials: "include",
     headers: {
@@ -101,15 +101,15 @@ export async function createPlaylist({
     body: JSON.stringify({ name: name.trim(), isPublic, trackIds }),
   });
 
-  if (res.status === 401) throw new Error("unauthorized");
+  if (response.status === 401) throw new Error("unauthorized");
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Failed to create playlist: ${res.status} ${text}`);
+  if (!response.ok) {
+    // use a different variable name (don't shadow `response`)
+    const text = await response.text().catch(() => "");
+    throw new Error(`Failed to create playlist: ${response.status} ${text}`);
   }
 
-  // assume backend returns JSON with playlist info
-  return res.json();
+  return await response;
 }
 
 

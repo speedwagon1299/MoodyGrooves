@@ -166,26 +166,29 @@ export async function fetchAllPlaylists(userId: string): Promise<{ profile: any;
 
 /**
  * fetchAllSongsFromPlaylists(userId, hrefs)
- * - For each playlist href, fetches all tracks with pagination
+ * - For each playlist href, fetches all tracks with pagination (limit=50)
  * - Deduplicates tracks by "song by artist" and by Spotify track ID
  * - Returns { uniqueSongs: string[], uniqueHrefIds: string[] }
  * - https://developer.spotify.com/documentation/web-api/reference/get-playlists-tracks
  */
-export async function fetchAllSongsFromPlaylists(userId: string, hrefs: string[]): Promise<{ uniqueSongs: string[]; uniqueHrefIds: string[] }> {
+export async function fetchAllSongsFromPlaylists(
+  userId: string,
+  hrefs: string[]
+): Promise<{ uniqueSongs: string[]; uniqueHrefIds: string[] }> {
   const songSet = new Set<string>();
   const hrefIdSet = new Set<string>();
-  const limit = 100;
+  const LIMIT = 50; // page size (up to 100 allowed; you wanted 50)
 
-  for (const href of hrefs) {
-    if (!href) continue;
+  for (const playlistHref of hrefs) {
+    if (!playlistHref) continue;
 
-    let offset = 0;
-    while (true) {
-      const url = new URL(href);
+    let nextUrl: string | null = playlistHref; // start with the initial href
+    while (nextUrl) {
+      const url = new URL(nextUrl);
+      // ensure we request only what we need and set the limit
       url.searchParams.set("market", "ES");
-      url.searchParams.set("fields", "items(track.artists.name,track.name,track.href)");
-      url.searchParams.set("limit", String(limit));
-      url.searchParams.set("offset", String(offset));
+      url.searchParams.set("fields", "items(track.artists.name,track.name,track.href),next,total");
+      url.searchParams.set("limit", String(LIMIT));
 
       let token = await getValidAccessToken(userId);
       let r = await fetch(url.toString(), {
@@ -194,7 +197,6 @@ export async function fetchAllSongsFromPlaylists(userId: string, hrefs: string[]
       });
 
       if (r.status === 401) {
-        // Refresh and retry once
         token = await getValidAccessToken(userId);
         r = await fetch(url.toString(), {
           method: "GET",
@@ -204,8 +206,8 @@ export async function fetchAllSongsFromPlaylists(userId: string, hrefs: string[]
 
       if (!r.ok) {
         const txt = await r.text().catch(() => "");
-        console.error(`Failed fetching tracks for ${href}: ${r.status} ${txt}`);
-        break;
+        console.error(`Failed fetching tracks for ${playlistHref}: ${r.status} ${txt}`);
+        break; // give up on this playlist
       }
 
       const page = (await r.json()) as PlaylistTracksPage;
@@ -217,18 +219,16 @@ export async function fetchAllSongsFromPlaylists(userId: string, hrefs: string[]
         const name = track.name.trim();
         const artist = track.artists?.[0]?.name?.trim() || "Unknown Artist";
         songSet.add(`${name} by ${artist}`);
-        
-        const href = track.href || "";
-        // get only spotify track ID
-        const hrefId = href.substring(href.lastIndexOf("/") + 1);
-        hrefIdSet.add(hrefId || "");
+
+        const trackHref = track.href || "";
+        const hrefId = trackHref.substring(trackHref.lastIndexOf("/") + 1);
+        if (hrefId) hrefIdSet.add(hrefId);
       }
 
-      if (!page.next || items.length === 0) break;
-      offset += items.length;
+      // follow the next URL provided by Spotify; will be null when finished
+      nextUrl = page.next || null;
     }
   }
-
   const uniqueSongs = Array.from(songSet);
   const uniqueHrefIds = Array.from(hrefIdSet);
   return { uniqueSongs, uniqueHrefIds };
@@ -329,14 +329,6 @@ export async function createPlaylist(
 
   const accessToken = await getValidAccessToken(userId);
 
-  // Get the Spotify user's id
-  const raw = await getUserProfile(userId);
-
-  const spotifyUserId = raw.id;
-  console.log('userId', userId);
-  console.log('spotifyUserId', spotifyUserId)
-
-  // Create the playlist
   const createBody = {
     name,
     public: isPublic,
@@ -344,7 +336,7 @@ export async function createPlaylist(
 
   // encodeURIComponent to deal with special characters to make it %<> type
   const createRes = await fetch(
-    `https://api.spotify.com/v1/users/${encodeURIComponent(spotifyUserId)}/playlists`,
+    `https://api.spotify.com/v1/users/${encodeURIComponent(userId)}/playlists`,
     {
       method: "POST",
       headers: {

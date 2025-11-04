@@ -39,8 +39,7 @@ export default function CreatePlaylist() {
       const res = await createPlaylist({ name, public: isPublic, trackIds });
       
       if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(txt || `Status ${res.status}`);
+        throw new Error(`Failed to create playlist: ${res.status} ${res.statusText}`);
       }
 
       alert("Playlist created successfully!");

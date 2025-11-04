@@ -77,14 +77,13 @@ router.post("/createPlaylist", requireAuth, async (req, res) => {
 
     // call service - createPlaylist should accept either (userId, spotifyUserId?, name, isPublic, trackIds)
     // If your createPlaylist signature is different, adjust the call below accordingly.
-    const result = await createPlaylist(userId, name, isPublic, trackIds);
+    const { playlistId, externalUrl } = await createPlaylist(userId, name, isPublic, trackIds);
 
-    // result expected: { playlistId, externalUrl } (adjust if your service returns different shape)
     return res.status(201).json({
       success: true,
       message: "Playlist created successfully.",
-      playlistId: result.playlistId,
-      externalUrl: result.externalUrl,
+      playlistId,
+      externalUrl,
     });
   } catch (err: any) {
     console.error("failed createPlaylist:", err);

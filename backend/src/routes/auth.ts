@@ -2,14 +2,17 @@
 import express, { Request, Response } from "express";
 import { handleCallback, spotifyAuthUrl, routeLogout } from "../services/auth";
 import { getSession } from "../lib/session";
+import { redis } from "../lib/redis";
+import { v4 as uuidv4 } from "uuid";
+import requireAuth from "../middleware/requireAuth";
 
 const router = express.Router();
 const COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "moody_session";
 
-// Start OAuth: /auth/spotify?userId=...
-router.get("/spotify", (req: Request, res: Response) => {
-  const userId = String(req.query.userId || "demo-user");
-  const state = userId;
+// Start OAuth: /auth/spotify
+router.get("/spotify", async (req: Request, res: Response) => {
+  const state = uuidv4();
+  await redis.set(`oauth_state:${state}`, "1", { EX: 300 }); // 5 minutes TTL
   res.redirect(spotifyAuthUrl(state));
 });
 
@@ -22,6 +25,13 @@ router.get("/spotify/callback", async (req: Request, res: Response) => {
     res.status(500).send(String(err.message || err));
   }
 });
+
+/** Get current user information */
+router.get("/me", requireAuth, async (req: Request, res: Response) => {
+  const userId = (req as any).user.userId;
+  res.json({ ok: true, userId });
+});
+
 
 /**
  * Session check endpoint

@@ -37,7 +37,18 @@ export async function handleCallback(req: Request, res: Response) {
   const code = String(req.query.code || "");
   const state = String(req.query.state || "");
   if (!code) return res.status(400).send("Missing code");
+  if (!state) return res.status(400).send("Missing state");
 
+  // Validate server-side state
+  const stateKey = `oauth_state:${state}`;
+  const stateExists = await redis.get(stateKey);
+  if (!stateExists) {
+    return res.status(400).send("Invalid or expired state");
+  }
+  // Delete state to prevent replay
+  await redis.del(stateKey);
+
+  // Exchange code -> tokens (your existing code)
   const params = new URLSearchParams({
     grant_type: "authorization_code",
     code,
@@ -52,41 +63,54 @@ export async function handleCallback(req: Request, res: Response) {
     },
     body: params.toString()
   });
+
   if (!tokenRes.ok) {
     const text = await tokenRes.text();
     return res.status(500).send("Token exchange failed: " + text);
   }
 
-  const data = await tokenRes.json() as TokenResponse; // access_token, refresh_token, expires_in, scope
+  const data = await tokenRes.json() as TokenResponse;
 
-  const userId = state || "demo-user";
+  // Use the access token to fetch the Spotify profile (canonical user id)
+  if (!data.access_token) {
+    return res.status(500).send("Missing access token from Spotify");
+  }
 
-  // Persist refresh token (encrypted) into Redis if available
-  if (!data.refresh_token) {
-    console.warn("No refresh token returned:", data);
-  } else {
-    const stored: StoredRefresh = {
+  const profileRes = await fetch("https://api.spotify.com/v1/me", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${data.access_token}` }
+  });
+
+  if (!profileRes.ok) {
+    const txt = await profileRes.text();
+    console.error("Failed to fetch Spotify profile:", profileRes.status, txt);
+    return res.status(500).send("Failed to fetch Spotify profile");
+  }
+  const profile = await profileRes.json();
+  const spotifyUserId = String(profile.id); // canonical user id from Spotify
+
+  // Persist refresh token (encrypted) if present
+  if (data.refresh_token) {
+    const stored = {
       encryptedRefreshToken: encrypt(String(data.refresh_token)),
       scopes: data.scope ? String(data.scope).split(" ") : []
     };
-    await redis.set(REDIS_REFRESH_KEY(userId), JSON.stringify(stored));
+    await redis.set(REDIS_REFRESH_KEY(spotifyUserId), JSON.stringify(stored));
+  } else {
+    console.warn("No refresh token returned from Spotify for user", spotifyUserId);
   }
 
-  // Store access token with TTL in Redis (short-lived)
+  // Persist access token with TTL
   if (data.access_token && data.expires_in) {
     const expiresAt = Date.now() + data.expires_in * 1000;
-    const value = JSON.stringify({ token: data.access_token, expiresAt });
-    await redis.set(REDIS_ACCESS_KEY(userId), value, { PX: (data.expires_in - 30) * 1000 });
+    await redis.set(REDIS_ACCESS_KEY(spotifyUserId), JSON.stringify({ token: data.access_token, expiresAt }), { PX: (data.expires_in - 30) * 1000 });
   }
 
-  // Create server-side session and set httpOnly cookie
-  const sessionPayload = {
-    userId,
-    createdAt: Date.now(),
-  };
+  // Create a server-side session tied to spotifyUserId
+  const sessionPayload = { userId: spotifyUserId, createdAt: Date.now() };
   const sessionId = await createSession(sessionPayload, SESSION_TTL_SECONDS);
 
-  // set cookie (httpOnly so JS cannot read it)
+  // Set cookie (httpOnly, secure in prod)
   res.cookie(COOKIE_NAME, sessionId, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -95,10 +119,8 @@ export async function handleCallback(req: Request, res: Response) {
     path: "/"
   });
 
-  // Redirect to frontend app URL (search page)
-  const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
-  const redirectTo = new URL("/search", FRONTEND_URL).toString();
-  return res.redirect(302, redirectTo);
+  // Redirect to frontend (or send success)
+  return res.redirect(process.env.FRONTEND_URL || "http://localhost:3000");
 }
 
 /**

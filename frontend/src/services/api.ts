@@ -60,14 +60,18 @@ export async function getTracks(phrase: string, hrefs: string[]): Promise<TrackI
   return data.tracks
 }
 
-/** Return auth URL for Spotify authorization on your backend. */
+/** Return auth URL for Spotify authorization on your backend */
 export function getLoginUrl() {
-  const base = `${BASE}/auth/spotify`
-  if (!userId) return base
-  // append as query param
-  const url = new URL(base)
-  url.searchParams.set('userId', userId)
-  return url.toString()
+  return `${BASE}/auth/spotify`;
+}
+
+export async function getCurrentUser() {
+  const res = await fetch(`${BASE}/auth/me`, {
+    method: "GET",
+    credentials: "include",
+  });
+  if (!res.ok) return null;
+  return res.json();
 }
 
 /** Logout endpoint. Returns the fetch promise. */

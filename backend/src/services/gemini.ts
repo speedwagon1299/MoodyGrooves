@@ -37,7 +37,7 @@ ${songs.join("\n")}
   ];
 
   const config = {
-    temperature: 0.1,
+    temperature: 0.01,
     responseMimeType: "application/json",
     responseSchema: {
       type: Type.OBJECT,
@@ -58,7 +58,7 @@ ${songs.join("\n")}
 - songs: an ordered list of up to 100 strings, each "<Song> by <Artist>".
 
 For each song, decide whether it reasonably matches the descriptor. Be conservative when uncertain (prefer False). Preserve the exact input order.
-
+Each song is an entity itself and should not influence the classification of other songs (baseline each independently).
 Output MUST be a JSON object conforming exactly to the provided schema and nothing else. Use deterministic responses.`,
       },
     ],

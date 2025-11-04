@@ -304,3 +304,101 @@ export async function fetchTracksInfo(
 
   return results;
 }
+
+/**
+ * Create a Spotify playlist for the given internal user and (optionally) add tracks.
+ * - https://developer.spotify.com/documentation/web-api/reference/get-current-users-profile
+ * - https://developer.spotify.com/documentation/web-api/reference/create-playlist
+ * - https://developer.spotify.com/documentation/web-api/reference/add-tracks-to-playlist
+ * 
+ * @param userId - internal user id used by getValidAccessToken to fetch token/refresh
+ * @param name - playlist name
+ * @param isPublic - true => public playlist, false => private
+ * @param trackIds - array of Spotify track IDs (not URIs). e.g. ["4uLU6hMCjMI75M1A2tKUQC", ...]
+ *
+ * @returns { playlistId, externalUrl } useful for storing/redirecting
+ *
+ * Throws an Error on failure (including if access token refresh fails).
+ */
+export async function createPlaylist(
+  userId: string,
+  name: string,
+  isPublic: boolean,
+  trackIds: string[] = []
+): Promise<{ playlistId: string; externalUrl?: string }> {
+
+  const accessToken = await getValidAccessToken(userId);
+
+  // Get the Spotify user's id
+  const raw = await getUserProfile(userId);
+
+  const spotifyUserId = raw.id;
+  console.log('userId', userId);
+  console.log('spotifyUserId', spotifyUserId)
+
+  // Create the playlist
+  const createBody = {
+    name,
+    public: isPublic,
+  };
+
+  // encodeURIComponent to deal with special characters to make it %<> type
+  const createRes = await fetch(
+    `https://api.spotify.com/v1/users/${encodeURIComponent(spotifyUserId)}/playlists`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(createBody),
+    }
+  );
+
+  if (!createRes.ok) {
+    const txt = await createRes.text();
+    console.error("Failed to create playlist:", createRes.status, txt);
+    throw new Error(`failed_create_playlist: ${createRes.status} ${txt}`);
+  }
+
+  const playlistData = await createRes.json() as { id: string; external_urls?: { spotify?: string } };
+  const playlistId = playlistData.id;
+  const externalUrl = playlistData.external_urls?.spotify;
+
+  // Add tracks in chunks of 100
+  if (trackIds && trackIds.length > 0) {
+
+    const chunk = <T,>(arr: T[], size: number): T[][] => {
+      const chunks: T[][] = [];
+      for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
+      return chunks;
+    };
+
+    const batches = chunk(trackIds, 100);
+    for (const batch of batches) {
+      // Convert plain track IDs to spotify:track:ID URIs if not already (will always be id but just in case)
+      const uris = batch.map((id) => (id.startsWith("spotify:") ? id : `spotify:track:${id}`));
+
+      const addRes = await fetch(
+        `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/tracks`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ uris }),
+        }
+      );
+
+      if (!addRes.ok) {
+        const txt = await addRes.text();
+        console.error("Failed to add tracks to playlist:", addRes.status, txt);
+        
+        throw new Error(`failed_add_tracks: ${addRes.status} ${txt}`);
+      }
+    }
+  }
+
+  return { playlistId, externalUrl };
+}

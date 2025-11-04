@@ -77,8 +77,6 @@ Output MUST be a JSON object conforming exactly to the provided schema and nothi
     }
     const parsed = JSON.parse(raw);
     const matches = parsed.matches as boolean[];
-    console.log("\nDescriptor:", descriptor);
-    console.log("\nGemini matches:", matches);
     return matches;
   } catch (err) {
     console.error("Failed to parse Gemini response:", err);

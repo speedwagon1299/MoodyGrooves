@@ -40,7 +40,6 @@ export default function ComposeQuery() {
   const goToFirst = () => setPage(1);
   const goToLast = () => setPage(totalPages);
 
-
   const handleSubmit = async () => {
     if (!phrase.trim()) {
       alert('Please enter a phrase or word to continue.')
@@ -96,6 +95,13 @@ export default function ComposeQuery() {
           {loading ? 'Loading...' : 'Use phrase'}
         </button>
       </div>
+
+      <button
+        className="btn btn-success mb-3"
+        onClick={() => nav("/create-playlist", { state: { trackIds: songTracks.map(t => t.id) } })}
+      >
+        Make Playlist
+      </button>
 
       {songTracks.length > 0 && (
         <>

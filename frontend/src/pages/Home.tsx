@@ -12,7 +12,7 @@ export default function Home() {
         const user = await getCurrentUser();
         if (user?.ok) {
           // already logged in -> redirect to search page
-          navigate("/search"); // or whatever your main page is
+          navigate("/search");
           return;
         }
       } catch {

@@ -74,6 +74,45 @@ export async function getCurrentUser() {
   return res.json();
 }
 
+/**
+ * Create a Spotify playlist for the logged-in user.
+ * Body: { name: string, public: boolean, trackIds: string[] }
+ * Returns: parsed JSON from the backend (or throws on non-OK).
+ */
+export async function createPlaylist({
+  name,
+  public: isPublic,
+  trackIds,
+}: {
+  name: string;
+  public: boolean;
+  trackIds: string[];
+}) {
+  if (!name || !name.trim()) throw new Error("playlist_name_required");
+  if (!Array.isArray(trackIds) || trackIds.length === 0) throw new Error("trackIds_required");
+
+  const res = await fetch(`${BASE}/api/createPlaylist`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name: name.trim(), isPublic, trackIds }),
+  });
+
+  if (res.status === 401) throw new Error("unauthorized");
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to create playlist: ${res.status} ${text}`);
+  }
+
+  // assume backend returns JSON with playlist info
+  return res.json();
+}
+
+
 /** Logout endpoint. Returns the fetch promise. */
 export function logout() {
   return fetch(`${BASE}/auth/logout`, {

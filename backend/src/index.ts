@@ -15,7 +15,7 @@ async function main() {
   const app = express();
 
   const allowedOrigins = [
-    "http://localhost:5173",
+    "http://localhost:4173",
     process.env.NGROK_TUNNEL
   ];
 

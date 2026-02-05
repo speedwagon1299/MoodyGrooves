@@ -16,7 +16,7 @@ if (!GEMINI_API_KEY) {
  */
 export async function classifySongs(descriptor: string, songs: string[]): Promise<boolean[]> {
   const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-  const model = "gemini-2.0-flash-lite";
+  const model = "gemini-flash-latest";
   const BATCH_SIZE = 30;
   const chunk = <T,>(arr: T[], size: number): T[][] => {
     const out: T[][] = [];

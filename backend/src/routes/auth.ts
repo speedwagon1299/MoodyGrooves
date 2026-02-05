@@ -8,6 +8,7 @@ import requireAuth from "../middleware/requireAuth";
 
 const router = express.Router();
 const COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "moody_session";
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
 // Start OAuth: /auth/spotify
 router.get("/spotify", async (req: Request, res: Response) => {
@@ -17,9 +18,12 @@ router.get("/spotify", async (req: Request, res: Response) => {
 });
 
 // OAuth callback: /auth/spotify/callback
-router.get("/spotify/callback", async (req: Request, res: Response) => {
+router.get("/spotify/callback", async (req, res) => {
   try {
-    await handleCallback(req, res);
+    const sessionId = await handleCallback(req);
+    res.redirect(
+      `http://localhost:4000/auth/finalize?sid=${sessionId}`
+    );
   } catch (err: any) {
     console.error("callback error", err);
     res.status(500).send(String(err.message || err));
@@ -54,6 +58,25 @@ router.get("/session", async (req: Request, res: Response) => {
     return res.status(500).json({ authenticated: false });
   }
 });
+
+router.get("/finalize", (req, res) => {
+  const sid = req.query.sid;
+
+  if (!sid || typeof sid !== "string") {
+    return res.status(400).send("Missing session");
+  }
+
+  res.cookie(COOKIE_NAME, sid, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: false,
+    maxAge: SESSION_TTL_SECONDS * 1000,
+    path: "/"
+  });
+
+  res.redirect("http://localhost:5173");
+});
+
 
 // wire both GET and POST to the same handler (frontend uses POST)
 router.get("/logout", routeLogout);

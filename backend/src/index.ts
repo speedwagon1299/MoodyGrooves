@@ -12,10 +12,27 @@ import apiRoutes from "./routes/api";
 async function main() {
   await startRedis();
   const app = express();
-  app.use(cors({
-    origin: 'http://localhost:5173', // your frontend URL
-    credentials: true,               // allow cookies to be sent
-  }));
+  console.log(process.env.NGROK_TUNNEL);
+  const allowedOrigins = [
+    "http://localhost:5173",
+    process.env.NGROK_TUNNEL
+  ];
+
+  app.use(
+    cors({
+      origin: function (origin, callback) {
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error("Not allowed by CORS"));
+        }
+      },
+      credentials: true
+    })
+  );
+
   app.use(express.json());
   app.use(cookieParser());
 

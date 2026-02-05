@@ -33,22 +33,17 @@ export function spotifyAuthUrl(state: string) {
  * OAuth callback handler: exchange code -> tokens, store tokens, create session cookie,
  * then redirect browser to FRONTEND_URL/search.
  */
-export async function handleCallback(req: Request, res: Response) {
+export async function handleCallback(req: Request): Promise<string> {
   const code = String(req.query.code || "");
   const state = String(req.query.state || "");
-  if (!code) return res.status(400).send("Missing code");
-  if (!state) return res.status(400).send("Missing state");
+  if (!code) throw new Error("Missing code");
+  if (!state) throw new Error("Missing state");
 
-  // Validate server-side state
   const stateKey = `oauth_state:${state}`;
   const stateExists = await redis.get(stateKey);
-  if (!stateExists) {
-    return res.status(400).send("Invalid or expired state");
-  }
-  // Delete state to prevent replay
+  if (!stateExists) throw new Error("Invalid or expired state");
   await redis.del(stateKey);
 
-  // Exchange code -> tokens (your existing code)
   const params = new URLSearchParams({
     grant_type: "authorization_code",
     code,
@@ -58,70 +53,62 @@ export async function handleCallback(req: Request, res: Response) {
   const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
     method: "POST",
     headers: {
-      Authorization: "Basic " + Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString("base64"),
+      Authorization:
+        "Basic " +
+        Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString("base64"),
       "Content-Type": "application/x-www-form-urlencoded"
     },
     body: params.toString()
   });
 
   if (!tokenRes.ok) {
-    const text = await tokenRes.text();
-    return res.status(500).send("Token exchange failed: " + text);
+    throw new Error("Token exchange failed: " + (await tokenRes.text()));
   }
 
-  const data = await tokenRes.json() as TokenResponse;
+  const data = (await tokenRes.json()) as TokenResponse;
 
-  // Use the access token to fetch the Spotify profile (canonical user id)
   if (!data.access_token) {
-    return res.status(500).send("Missing access token from Spotify");
+    throw new Error("Missing access token from Spotify");
   }
 
   const profileRes = await fetch("https://api.spotify.com/v1/me", {
-    method: "GET",
     headers: { Authorization: `Bearer ${data.access_token}` }
   });
 
   if (!profileRes.ok) {
-    const txt = await profileRes.text();
-    console.error("Failed to fetch Spotify profile:", profileRes.status, txt);
-    return res.status(500).send("Failed to fetch Spotify profile");
+    throw new Error("Failed to fetch Spotify profile");
   }
+
   const profile = await profileRes.json();
-  const spotifyUserId = String(profile.id); // canonical user id from Spotify
+  const spotifyUserId = String(profile.id);
 
-  // Persist refresh token (encrypted) if present
   if (data.refresh_token) {
-    const stored = {
-      encryptedRefreshToken: encrypt(String(data.refresh_token)),
-      scopes: data.scope ? String(data.scope).split(" ") : []
-    };
-    await redis.set(REDIS_REFRESH_KEY(spotifyUserId), JSON.stringify(stored));
-  } else {
-    console.warn("No refresh token returned from Spotify for user", spotifyUserId);
+    await redis.set(
+      REDIS_REFRESH_KEY(spotifyUserId),
+      JSON.stringify({
+        encryptedRefreshToken: encrypt(String(data.refresh_token)),
+        scopes: data.scope ? String(data.scope).split(" ") : []
+      })
+    );
   }
 
-  // Persist access token with TTL
   if (data.access_token && data.expires_in) {
-    const expiresAt = Date.now() + data.expires_in * 1000;
-    await redis.set(REDIS_ACCESS_KEY(spotifyUserId), JSON.stringify({ token: data.access_token, expiresAt }), { PX: (data.expires_in - 30) * 1000 });
+    await redis.set(
+      REDIS_ACCESS_KEY(spotifyUserId),
+      JSON.stringify({
+        token: data.access_token,
+        expiresAt: Date.now() + data.expires_in * 1000
+      }),
+      { PX: (data.expires_in - 30) * 1000 }
+    );
   }
 
-  // Create a server-side session tied to spotifyUserId
   const sessionPayload = { userId: spotifyUserId, createdAt: Date.now() };
   const sessionId = await createSession(sessionPayload, SESSION_TTL_SECONDS);
 
-  // Set cookie (httpOnly, secure in prod)
-  res.cookie(COOKIE_NAME, sessionId, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: SESSION_TTL_SECONDS * 1000,
-    path: "/"
-  });
-
-  // Redirect to frontend (or send success)
-  return res.redirect(process.env.FRONTEND_URL || "http://localhost:3000");
+  return sessionId;
 }
+
 
 /**
  * Unified logout handler function (reused for GET & POST)

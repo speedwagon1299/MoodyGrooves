@@ -5,14 +5,14 @@ import dotenv from "dotenv";
 import cors from 'cors';
 dotenv.config();
 
-import { startRedis } from "./lib/redis";
+import { startRedis, redis } from "./lib/redis";
 import authRoutes from "./routes/auth";
 import apiRoutes from "./routes/api";
 
 async function main() {
   await startRedis();
   const app = express();
-  console.log(process.env.NGROK_TUNNEL);
+
   const allowedOrigins = [
     "http://localhost:5173",
     process.env.NGROK_TUNNEL
@@ -32,6 +32,22 @@ async function main() {
       credentials: true
     })
   );
+
+  app.get("/health", async (_, res) => {
+    try {
+      await redis.ping(); 
+      res.status(200).json({
+        status: "ok",
+        redis: "connected"
+      });
+    } catch (err) {
+      console.error("Health check failed:", err);
+      res.status(500).json({
+        status: "error",
+        redis: "disconnected"
+      });
+    }
+  });
 
   app.use(express.json());
   app.use(cookieParser());

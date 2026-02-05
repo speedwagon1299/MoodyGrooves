@@ -104,3 +104,4 @@ firebase-debug.log
 .firebaserc
 .aws/
 .gcloud/
+*.zip

@@ -74,7 +74,7 @@ router.get("/finalize", (req, res) => {
     path: "/"
   });
 
-  res.redirect("http://localhost:5173");
+  res.redirect("http://localhost:4173");
 });
 
 

@@ -1,5 +1,6 @@
 // src/index.ts
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
+
 import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import cors from 'cors';
@@ -54,6 +55,25 @@ async function main() {
 
   app.use("/auth", authRoutes);
   app.use("/api", apiRoutes);
+
+  // 404 handler (unknown routes)
+  app.use((req, res, next) => {
+    res.status(404).json({
+      error: "Route not found",
+      path: req.originalUrl,
+    });
+  });
+
+  // Global error handler
+  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+    console.error("Unhandled error:", err);
+
+    const status = err.status || err.statusCode || 500;
+
+    res.status(status).json({
+      error: err.message || "Internal Server Error",
+    });
+  });
 
   const PORT = process.env.PORT || "4000";
   app.listen(Number(PORT), () => console.log(`Server running on http://localhost:${PORT}`));
